@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Time Bank — Dark Dashboard</title>
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root{
+      --bg:#071123;
+      --card:#0f1724;
+      --muted:#94a3b8;
+      --accent-from:#7c3aed;
+      --accent-to:#06b6d4;
+    }
+    body{background:linear-gradient(180deg,#041026 0%,var(--bg) 100%);color:#e6eef8}
+    .glass{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));backdrop-filter: blur(6px);}
+    .muted{color:var(--muted)}
+    .accent-cta{background:linear-gradient(90deg,var(--accent-from),var(--accent-to))}
+    /* small helpers */
+    .card-scroll{max-height:16rem;overflow:auto;padding-right:0.25rem}
+  </style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+  <div class="max-w-6xl mx-auto p-6">
+    <header class="flex items-start justify-between mb-6">
+      <div>
+        <h1 class="text-3xl font-extrabold tracking-tight">Time Bank <span class="text-sm text-indigo-300">Dashboard</span></h1>
+        <p class="text-sm muted mt-1">Manage users, post services and transfer time credits — provider gets credited, recipient pays.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button id="refreshAll" class="px-4 py-2 rounded-lg accent-cta text-white shadow-lg hover:opacity-95">Refresh</button>
+      </div>
+    </header>
+
+    <main class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Users -->
+      <section class="lg:col-span-1 glass p-4 rounded-xl shadow-md border border-white/5">
+        <h2 class="text-lg font-semibold">Users & Balances</h2>
+        <div class="mt-3 space-y-3">
+          <div id="usersList" class="space-y-2 card-scroll"></div>
+
+          <div class="pt-3 border-t border-white/4">
+            <h3 class="text-sm muted mb-2">Add / Top-up User</h3>
+            <input id="u_name" class="w-full mb-2 p-2 rounded bg-transparent border border-white/5" placeholder="Name" />
+            <input id="u_balance" class="w-full mb-2 p-2 rounded bg-transparent border border-white/5" placeholder="Starting minutes (e.g. 120)" />
+            <div class="flex gap-2">
+              <button onclick="createUser()" class="flex-1 py-2 rounded bg-indigo-600 text-white">Create</button>
+              <button onclick="fillSampleUsers()" class="px-3 py-2 rounded border">Sample</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Services -->
+      <section class="glass p-4 rounded-xl shadow-md border border-white/5">
+        <h2 class="text-lg font-semibold">Services</h2>
+        <div class="mt-3 space-y-3">
+          <div id="servicesList" class="space-y-2 card-scroll"></div>
+
+          <div class="pt-3 border-t border-white/4">
+            <h3 class="text-sm muted mb-2">Post a Service</h3>
+            <input id="s_title" class="w-full mb-2 p-2 rounded bg-transparent border border-white/5" placeholder="Title (e.g. Tutoring)" />
+            <input id="s_provider" class="w-full mb-2 p-2 rounded bg-transparent border border-white/5" placeholder="Provider user id" />
+            <input id="s_duration" class="w-full mb-2 p-2 rounded bg-transparent border border-white/5" placeholder="Duration minutes (default 60)" />
+            <textarea id="s_desc" class="w-full mb-2 p-2 rounded bg-transparent border border-white/5" rows="2" placeholder="Short description"></textarea>
+            <div class="flex gap-2">
+              <button onclick="createService()" class="py-2 rounded bg-emerald-500 text-white flex-1">Post Service</button>
+              <button onclick="loadServices()" class="px-3 py-2 rounded border">Refresh</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Transactions -->
+      <section class="glass p-4 rounded-xl shadow-md border border-white/5">
+        <h2 class="text-lg font-semibold">Record Transaction</h2>
+        <p class="text-sm muted">Provider is credited; recipient is debited. Make sure recipient has enough minutes.</p>
+        <div class="mt-3">
+          <input id="tx_provider" class="w-full mb-2 p-2 rounded bg-transparent border border-white/5" placeholder="Provider user id (who did the work)" />
+          <input id="tx_recipient" class="w-full mb-2 p-2 rounded bg-transparent border border-white/5" placeholder="Recipient user id (who pays)" />
+          <input id="tx_minutes" class="w-full mb-2 p-2 rounded bg-transparent border border-white/5" placeholder="Minutes (default 60)" />
+          <input id="tx_desc" class="w-full mb-2 p-2 rounded bg-transparent border border-white/5" placeholder="Description (optional)" />
+          <div class="flex gap-2">
+            <button onclick="createTransaction()" class="flex-1 py-2 rounded bg-pink-600 text-white">Transfer</button>
+            <button onclick="loadUsers()" class="px-3 py-2 rounded border">Refresh Balances</button>
+          </div>
+          <div id="tx_result" class="mt-3 text-sm text-emerald-300"></div>
+        </div>
+      </section>
+
+      <!-- Recent transactions (full width) -->
+      <section class="lg:col-span-3 glass p-4 rounded-xl shadow-md border border-white/5">
+        <h2 class="text-lg font-semibold">Recent Transactions</h2>
+        <div id="txList" class="mt-3 card-scroll space-y-2"></div>
+      </section>
+    </main>
+
+    <footer class="mt-6 text-sm muted">If the UI cannot talk to the backend, add the small CORS snippet to your backend (instructions below).</footer>
+  </div>
+
+  <script>
+    const API_ROOT = 'http://127.0.0.1:8000';
+
+    async function api(path, opts = {}) {
+      const res = await fetch(API_ROOT + path, opts);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => res.statusText);
+        throw new Error(`${res.status} ${res.statusText}: ${txt}`);
+      }
+      try { return await res.json(); } catch(e) { return null; }
+    }
+
+    /* ---------- USERS ---------- */
+    async function loadUsers(){
+      try {
+        const users = await api('/users');
+        const el = document.getElementById('usersList');
+        if (!users || users.length === 0) { el.innerHTML = '<div class="text-slate-400">No users yet</div>'; return; }
+        el.innerHTML = users.map(u => `
+          <div class="p-2 rounded border border-white/3 flex justify-between items-center">
+            <div>
+              <div class="font-semibold">${u.id}. ${escapeHtml(u.name)}</div>
+              <div class="text-sm muted">Balance: <span class="font-medium">${u.minutes_balance} min</span></div>
+            </div>
+            <div class="flex gap-2">
+              <button class="px-2 py-1 rounded border" onclick="prefillTopup(${u.id}, '${escapeHtml(u.name)}')">Top-up</button>
+              <button class="px-2 py-1 rounded border" onclick="deleteUser(${u.id})">Delete</button>
+            </div>
+          </div>`).join('');
+      } catch(e) { console.error(e); alert('Failed loading users: ' + e.message); }
+    }
+
+    function prefillTopup(id, name){ document.getElementById('u_name').value = name; document.getElementById('u_balance').value = ''; }
+
+    async function createUser(){
+      const name = document.getElementById('u_name').value.trim();
+      const minutes = parseInt(document.getElementById('u_balance').value || '0');
+      if (!name) return alert('Enter a name');
+      try {
+        await api('/users', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name, minutes_balance: minutes }) });
+        document.getElementById('u_name').value = '';
+        document.getElementById('u_balance').value = '';
+        loadUsers();
+      } catch(e) { alert('Create user failed: ' + e.message); }
+    }
+
+    async function deleteUser(id){
+      if (!confirm('Delete user ' + id + '?')) return;
+      try { await api('/users/' + id, { method: 'DELETE' }); loadUsers(); } catch(e) { alert('Delete failed: ' + e.message); }
+    }
+
+    function fillSampleUsers(){
+      Promise.all([
+        api('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:'Ali', minutes_balance:120 })}),
+        api('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:'Sara', minutes_balance:60 })}),
+        api('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:'Bilal', minutes_balance:30 })})
+      ]).then(()=>loadUsers()).catch(e=>console.error(e));
+    }
+
+    /* ---------- SERVICES ---------- */
+    async function loadServices(){
+      try {
+        const services = await api('/services');
+        const el = document.getElementById('servicesList');
+        if (!services || services.length === 0) { el.innerHTML = '<div class="text-slate-400">No services yet</div>'; return; }
+        el.innerHTML = services.map(s => `
+          <div class="p-2 rounded border border-white/3">
+            <div class="font-semibold">${s.id}. ${escapeHtml(s.title)}</div>
+            <div class="text-sm muted">Provider: ${s.provider_user_id} • ${s.duration_minutes} min</div>
+            <div class="text-sm">${escapeHtml(s.description || '')}</div>
+          </div>`).join('');
+      } catch(e) { console.error(e); alert('Failed loading services: ' + e.message); }
+    }
+
+    async function createService(){
+      const title = document.getElementById('s_title').value.trim();
+      const provider = parseInt(document.getElementById('s_provider').value || '0');
+      const duration = parseInt(document.getElementById('s_duration').value || '60');
+      const desc = document.getElementById('s_desc').value;
+      if (!title || !provider) return alert('Title and provider required');
+      try {
+        await api('/services', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title, description: desc, provider_user_id: provider, duration_minutes: duration })});
+        document.getElementById('s_title').value=''; document.getElementById('s_provider').value=''; document.getElementById('s_duration').value='60'; document.getElementById('s_desc').value='';
+        loadServices();
+      } catch(e) { alert('Post service failed: ' + e.message); }
+    }
+
+    /* ---------- TRANSACTIONS ---------- */
+    async function loadTransactions(){
+      try {
+        const txs = await api('/transactions');
+        const el = document.getElementById('txList');
+        if (!txs || txs.length === 0) { el.innerHTML = '<div class="text-slate-400">No transactions yet</div>'; return; }
+        el.innerHTML = txs.map(t => `
+          <div class="p-2 rounded border border-white/5 flex justify-between">
+            <div>
+              <div class="font-medium">${t.id}. ${t.minutes} min</div>
+              <div class="text-sm muted">Provider: ${t.provider_user_id} → Recipient: ${t.recipient_user_id}</div>
+              <div class="text-sm">${escapeHtml(t.description || '')}</div>
+            </div>
+            <div class="text-xs muted">${t.timestamp || ''}</div>
+          </div>`).join('');
+      } catch(e) { console.error(e); document.getElementById('txList').innerHTML = '<div class="text-red-400">Failed loading transactions</div>'; }
+    }
+
+    async function createTransaction(){
+      const provider = parseInt(document.getElementById('tx_provider').value || '0');
+      const recipient = parseInt(document.getElementById('tx_recipient').value || '0');
+      const minutes = parseInt(document.getElementById('tx_minutes').value || '60');
+      const desc = document.getElementById('tx_desc').value;
+      if (!provider || !recipient) return alert('Provide provider and recipient IDs');
+      try {
+        const tx = await api('/transactions', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ provider_user_id: provider, recipient_user_id: recipient, minutes, description: desc })});
+        document.getElementById('tx_result').innerText = `OK — id ${tx.id} | ${tx.minutes} min`;
+        loadUsers(); loadTransactions();
+      } catch(e) { alert('Transaction failed: ' + e.message); }
+    }
+
+    /* ---------- UTIL ---------- */
+    function escapeHtml(s){ if(!s) return ''; return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'); }
+
+    document.getElementById('refreshAll').addEventListener('click', ()=>{ loadUsers(); loadServices(); loadTransactions(); });
+    // initial load
+    loadUsers(); loadServices(); loadTransactions();
+  </script>
+</body>
+</html>
