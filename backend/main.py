@@ -1,11 +1,15 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException  
 from pydantic import BaseModel
 from typing import List
-import sqlite3
+import sqlite3    #Database to store users, transactions and services
 
 app = FastAPI(title="Time Bank API")
 from fastapi.middleware.cors import CORSMiddleware
-
+#For security reasons, web browsers enforce a "Same-Origin Policy." This policy prevents a web page from making requests to a different "origin"—a combination of the protocol (e.g., http), domain (e.g., example.com), and port (e.g., 8000). 
+# In your project, the frontend is likely running on a different origin than your FastAPI backend.
+# Frontend (Browser): http://localhost:3000 (or another port)
+# Backend (FastAPI): http://localhost:8000 (or a different URL) 
+# Because the ports are different, the browser will block JavaScript running on localhost:3000 from accessing your API at localhost:8000 unless the backend explicitly allows it
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # allow all origins (frontend http://127.0.0.1:5500)
@@ -19,20 +23,20 @@ def get_db():
     conn = sqlite3.connect("timebank.db")
     conn.row_factory = sqlite3.Row
     return conn
-
-# Models
+#Data Models (Schemas)
+#Represents a user account.
 class User(BaseModel):
     id: int | None = None
     name: str
     minutes_balance: int = 0
-
+#Represents a service offered by a user.
 class Service(BaseModel):
     id: int | None = None
     title: str
     description: str | None = None
     provider_user_id: int
     duration_minutes: int = 60
-
+#Represents a transfer of time (minutes) between users.
 class Transaction(BaseModel):
     id: int | None = None
     provider_user_id: int
@@ -44,6 +48,8 @@ class Transaction(BaseModel):
 def init_db():
     conn = get_db()
     c = conn.cursor()
+'''Creates a cursor named c using the connection.
+The cursor is like a “pen” that lets you write SQL commands (like CREATE, INSERT, SELECT) to the database.'''
     c.execute('''CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
